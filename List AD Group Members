@@ -1,0 +1,2 @@
+$group = "<AD Group>" #try without domain\
+Get-ADGroup $group -Properties Member | Select-Object -ExpandProperty Member | Get-ADUser | Select -ExpandProperty SAMAccountName

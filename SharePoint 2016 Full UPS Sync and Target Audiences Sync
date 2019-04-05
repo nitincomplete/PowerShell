@@ -1,0 +1,36 @@
+
+$LogPath = "C:\"
+$LogTime = Get-Date -Format yyyy-MM-dd_hh-mm
+$LogFile = "$LogPath\Full-UPS_Audience-Sync-$LogTime.log"
+
+$site = "<Central Admin Site>"
+
+start-transcript $LogFile
+
+$sitesub = Get-SPSite $site
+$context = Get-SPServiceContext $sitesub
+    $upsConfigManager = New-Object Microsoft.Office.Server.UserProfiles.UserProfileConfigManager($context)
+
+## START FUll UPS Sync
+    if($upsConfigManager.IsSynchronizationRunning() -eq $false)
+    {
+        $upsConfigManager.StartSynchronization($true) 
+        Write-Host "Started Full UPS Sync with a sleep of 10 minutes..."
+
+        Start-Sleep -s 600   #Give 10 minutes (600 seconds for it to complete)
+    }
+    else
+    {
+        Write-Host "UPS Sync is runniung already"
+    }
+
+    # Start Target Audience Compilation
+    $appUPA = Get-SPServiceApplication | Where {$_.TypeName -eq 'User Profile Service Application'}
+    if ($appUPA) {
+        #Stop Audiences Compilation Job
+        Audiencejob.exe $appUPA.Id 0
+        #Start Audiences Compilation Job
+        Audiencejob.exe $appUPA.Id 1 <Audience Name>  #this compiles all available audiences though
+    }
+
+stop-transcript

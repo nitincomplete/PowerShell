@@ -2,8 +2,6 @@ $LogPath = "C:\Logs\"
 $LogTime = Get-Date -Format yyyy-MM-dd_hh-mm
 $LogFile = "$LogPath\Full-UPS_Audience-Sync-$LogTime.log"
 
-$site = "<Central Admin Site>"
-
 start-transcript $LogFile
     
     try{
@@ -21,7 +19,6 @@ start-transcript $LogFile
     }
     catch{
         Write-Host "delete older log files, Error: $_" -fore red
-        Write-EventLog -LogName $logName -Source $eventSource -EventID 0 -EntryType Error -Message "$eventSource Error - $_"
     }
 
 stop-transcript

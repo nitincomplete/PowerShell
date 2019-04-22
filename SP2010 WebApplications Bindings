@@ -1,0 +1,30 @@
+Import-Module WebAdministration
+
+$outputfile = "D:\PS-Export\SP2010_SPWebApplications_Bindings.csv"
+$list = @()
+
+try
+{
+    Foreach ($webApp in get-website) 
+    { 
+        $arrWebApps = @()
+
+        Foreach ($Bind in $webApp.bindings.collection) 
+        {
+            $objBind = @{
+                WebAppName=$webApp.name;
+                Protocol=$Bind.Protocol;
+                Bindings=$Bind.BindingInformation
+            }
+            $obj = New-Object PSObject -Property $objBind
+            $arrWebApps += $obj
+        }
+        $list += $arrWebApps
+    }
+    $list | Export-Csv $outputfile -NoTypeInformation
+}
+catch
+{
+    $ExceptionMessage = "Error in Line: " + $_.Exception.Line + ". " + $_.Exception.GetType().FullName + ": " + $_.Exception.Message + " Stacktrace: " + $_.Exception.StackTrace
+    $ExceptionMessage
+}

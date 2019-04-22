@@ -1,0 +1,331 @@
+Param([Parameter(Mandatory=$true)][string]$Site, [Parameter(Mandatory=$true)][string]$DataSource, [Parameter(Mandatory=$true)][string]$DatabaseName, [Parameter(Mandatory=$true)][string]$LogPath, [Parameter(Mandatory=$true)][string]$DeleteProfiles)
+
+[void][System.Reflection.Assembly]::LoadWithPartialName("Microsoft.Office.Server")  
+[void][System.Reflection.Assembly]::LoadWithPartialName("Microsoft.Office.Server.UserProfiles")  
+Add-PSSnapin Microsoft.SharePoint.PowerShell
+
+####### This Script will do the following:-
+# 1. Iterate through all User Profiles from User Profile Service Application (UPS)
+# 2. Pulls related record from Employee Database (SQL/Ultipro) including address details
+# 3. Update UPS profile with Address details
+# 4. Match each user profile against AD Group (G-SP-Social) and Audience (spsocial)
+# 5. Deletes any profile from UPS if available in AD Group (G-SP-Social) and not available in Audience (spsocial) based on input parameter $DeleteProfiles (true/false)
+# 6. Does not delete any UPS profiles which are inactive in Employee Database (SQL/Ultipro) as this will be handled via ControlPoint. (has code commented out)
+
+
+#Uncomment for Local run Only
+#$site = "<Central Admin URL, or MySite URL>"
+#$DataSource = "Employee Database Server Name"
+#$DatabaseName = "Employee Database Name"
+#$LogPath = "C:\SharePoint\UPS Profile Address Updates"
+$isDeleteProfiles = $false
+
+if($null -ne $DeleteProfiles)
+{
+    if($DeleteProfiles -eq "true"){
+        $isDeleteProfiles = $true
+    }
+}
+
+$eventSource = "SPUserProfileUpdate"
+$logName = "Application"
+
+$separator = "\\";
+$failedItems = 0
+$successItems = 0
+$index = 0
+
+$Audience = $null
+
+$adGroupSocial = "G-SP-Social"
+$global:countUsersinADNotInAudience = 0
+$global:arrUsersNotInAudience = @()
+$logUsersNotInAudience = "$LogPath\UsersNotInAudience-SPSocial-$LogTime.log"
+
+$global:countUsersInactiveInDB = 0
+$global:arrUsersInactiveInDB = @()
+$logUsersInactiveInDB = "$LogPath\UsersInactiveInDB-$LogTime.log"
+
+$global:countUsersNotInDB = 0
+$global:arrUsersNotInDB = @()
+$logUsersNotInDB = "$LogPath\UsersNotInDB-$LogTime.log"
+
+Write-Host "$eventSource - The SharePoint PS Started to update users' addresses"
+Write-EventLog -LogName $logName -Source $eventSource -EventID 2 -EntryType Information -Message "$eventSource - The SharePoint PS Started to update users' addresses"
+
+try{
+    #Create Log Directory if not exists
+    New-Item $LogPath –type directory
+   }catch{}
+
+$LogTime = Get-Date -Format yyyy-MM-dd_hh-mm
+$LogFile = "$LogPath\SPUserProfileUpdate-$LogTime.log"
+
+start-transcript $LogFile
+
+Function GetADGrpMembersSocial()
+{
+    try 
+    { 
+        Write-Host "$(Get-Date -Format yyyy-MM-dd_hh-mm) `t Loading AD Group members of G-SP-Social..." -fore Yellow
+        $members = Get-ADGroup $adGroupSocial -Properties Member | Select-Object -ExpandProperty Member | Get-ADUser | Select -ExpandProperty SAMAccountName
+        Write-Host "$(Get-Date -Format yyyy-MM-dd_hh-mm) `t Loaded AD Group members of G-SP-Social." -fore Green
+        return $members
+    } 
+    catch 
+    { 
+        Write-Host "$(Get-Date -Format yyyy-MM-dd_hh-mm) `t Failed to load AD Group members of G-SP-Social" -fore Red
+        Write-EventLog -LogName $logName -Source $eventSource -EventID 0 -EntryType Error -Message "$eventSource Error - Failed to load AD Group members of G-SP-Social."
+    }
+}
+
+Function GetDBRecord($empNumber)
+{
+    try 
+    { 
+        $SQLConnection = New-Object System.Data.SQLClient.SQLConnection 
+        $SQLConnection.ConnectionString ="server=$DataSource;database=$DatabaseName;Integrated Security=True;" 
+        $SQLConnection.Open() 
+        
+        $SQLCommand = New-Object System.Data.SqlClient.SqlCommand 
+        $SQLCommand.CommandText = "SELECT ADDRESS,CITY,STATE,ZIPCODE,STATUS FROM [CORPDIRADM].[T_CORPDIR_DAT_EMPLOYEE] where EMPLOYEE_NUMBER='" + $empNumber + "'"
+        $SQLCommand.Connection = $SQLConnection 
+ 
+        $SQLAdapter = New-Object System.Data.SqlClient.SqlDataAdapter 
+        $SqlAdapter.SelectCommand = $SQLCommand                  
+        $SQLDataset = New-Object System.Data.DataSet 
+        $SqlAdapter.fill($SQLDataset) | out-null 
+        $SQLConnection.close()
+
+        #Write-Host "RowsCount: "$SQLDataset.tables[0].Rows.Count
+
+        if($SQLDataset.tables[0].Rows.Count -gt 0)
+        {
+            $row = $SQLDataset.tables[0].Rows[0]
+            #Write-Host $row["ADDRESS"].ToString().Trim();
+            return $row
+        }
+    } 
+    catch 
+    { 
+        Write-Host "$(Get-Date -Format yyyy-MM-dd_hh-mm) `t Failed to connect SQL Server." -fore red
+        Write-EventLog -LogName $logName -Source $eventSource -EventID 0 -EntryType Error -Message "$eventSource Error - Failed to connect SQL Server, EmpNumber: $empNumber"
+    }
+}
+
+Function IsDBConnected()
+{
+    try{
+        $SQLConnection = New-Object System.Data.SQLClient.SQLConnection 
+        $SQLConnection.ConnectionString ="server=$DataSource;database=$DatabaseName;Integrated Security=True;" 
+        $SQLConnection.Open() 
+        Write-Host "$(Get-Date -Format yyyy-MM-dd_hh-mm) `t $eventSource - SQL Database connected successfully"
+        Write-EventLog -LogName $logName -Source $eventSource -EventID 2 -EntryType Information -Message "$eventSource - SQL Database connected successfully"
+        $SQLConnection.close()
+        return $true
+    }
+    catch
+    {
+        Write-Host "$(Get-Date -Format yyyy-MM-dd_hh-mm) `t Failed to connect SQL Server." -fore red
+        Write-EventLog -LogName $logName -Source $eventSource -EventID 0 -EntryType Error -Message "$eventSource Error - $_"
+        return $false
+    }
+}
+
+Function DeleteOldLogs()
+{
+    try{
+        # Delete all log Files Logs older than 15 day(s)
+        $Daysback = "-15"
+        $CurrentDate = Get-Date
+        $DatetoDelete = $CurrentDate.AddDays($Daysback)
+        $files = Get-ChildItem $LogPath -Recurse -force -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt "$DatetoDelete" } 
+
+        foreach($file in $files)
+        {
+            write-host "Deleting File $File" backgroundcolor "DarkRed"
+            Remove-item $file.Fullname | out-null
+        }
+    }
+    catch{
+        Write-Host "$(Get-Date -Format yyyy-MM-dd_hh-mm) `t delete older log files, Error: $_" -fore red
+        Write-EventLog -LogName $logName -Source $eventSource -EventID 0 -EntryType Error -Message "$eventSource Error - $_"
+    }
+}
+
+Function Remove-SPUserProfile
+{
+    Param([System.Object[]]$upsProfile, [String]$dbRowStatus)
+
+    $isDeleted = $false
+
+    try{
+        $EmpID = ($upsProfile.AccountName -split $separator,2)[1]
+
+        
+            #Check if user is inactive in DB
+            #If Yes, Delete User Profile
+       
+            if( ($dbRowStatus -eq "L") )
+            {
+                $global:countUsersInactiveInDB += 1
+                $global:arrUsersInactiveInDB += $upsProfile
+
+                #Uncomment below code if you want to match/delete against Employee database
+                #if($isDeleteProfiles)
+                #{
+                #    Write-Host "$(Get-Date -Format yyyy-MM-dd_hh-mm) `t Deleting Inactive Account: " $EmpID
+                #    $upManager.RemoveUserProfile($upsProfile.ID)  #Delete User Profile
+                #    Write-Host "$(Get-Date -Format yyyy-MM-dd_hh-mm) `t Deleted Inactive Account: " $EmpID
+                #    $isDeleted = $true
+                #}
+            }
+
+            #if profile not deleted yet, check if in AD group, check if not in TA - Delete User Profile
+          
+            if( ($null -ne $Audience) -and (-Not $isDeleted) -and ($adGroupSocialMembers -contains $EmpID))
+            {
+                $audienceMember = $Audience.GetMembership() | Where {$_.NTName -eq $upsProfile.AccountName}
+                #$audienceMember
+            
+                if($null -eq $audienceMember){
+                    $global:countUsersinADNotInAudience += 1
+                    $global:arrUsersNotInAudience += $upsProfile
+                    if($isDeleteProfiles)
+                    {
+                        Write-Host "$(Get-Date -Format yyyy-MM-dd_hh-mm) `t Deleting Account Not-In spsocial: " $EmpID
+                        $upManager.RemoveUserProfile($upsProfile.ID) #Delete User Profile
+                        $isDeleted = $true
+                    }
+                }
+            }
+        
+    }
+    catch{
+        Write-Host "$(Get-Date -Format yyyy-MM-dd_hh-mm) `t Remove-SPUserProfile, Error: $_" -fore red
+        Write-EventLog -LogName $logName -Source $eventSource -EventID 0 -EntryType Error -Message "$eventSource Error -Remove-SPUserProfile $_"
+    }
+    return $isDeleted
+}
+
+#Main Script Ruuning Start Here...
+$sitesub = Get-SPSite $Site
+$context = Get-SPServiceContext $sitesub
+
+# Load AD Group Members of Social Group
+$adGroupSocialMembers = GetADGrpMembersSocial
+
+if($context -eq $null)
+{
+    Write-Host "$(Get-Date -Format yyyy-MM-dd_hh-mm) `t $eventSource Error - SharePoint Context is Null."
+    Write-EventLog -LogName $logName -Source $eventSource -EventID 0 -EntryType Error -Message "$eventSource Error - SharePoint Context is Null."
+}
+else
+{
+    Write-Host "$(Get-Date -Format yyyy-MM-dd_hh-mm) `t $eventSource - The SharePoint Context created successfully"
+    Write-EventLog -LogName $logName -Source $eventSource -EventID 2 -EntryType Information -Message "$eventSource - The SharePoint Context created successfully"
+    $upsConfigManager = New-Object Microsoft.Office.Server.UserProfiles.UserProfileConfigManager($context)
+    $upManager = New-Object Microsoft.Office.Server.UserProfiles.UserProfileManager($context)
+
+    $audmanager=New-Object Microsoft.Office.Server.Audience.AudienceManager($context);
+    $Audience = $audmanager.Audiences | Where {$_.AudienceName -eq "spsocial"}
+
+    if($upManager -eq $null)
+    {
+        Write-Host "$(Get-Date -Format yyyy-MM-dd_hh-mm) `t $eventSource Error - SharePoint UserProfile Manager is Null."
+        Write-EventLog -LogName $logName -Source $eventSource -EventID 0 -EntryType Error -Message "$eventSource Error - SharePoint UserProfile Manager is Null."
+    }
+    else
+    {
+        $usersCount = $upManager.Count.ToString()
+        Write-Host "$(Get-Date -Format yyyy-MM-dd_hh-mm) `t $eventSource - The SharePoint User Profile Service Application connected successfully. Total UPS Users: $usersCount"
+        Write-EventLog -LogName $logName -Source $eventSource -EventID 2 -EntryType Information -Message "$eventSource - The SharePoint User Profile Service Application connected successfully. Total UPS Users: $usersCount"
+    
+        if(IsDBConnected)
+        {        
+            $profiles = $upManager.GetEnumerator()
+
+            Write-Host "$(Get-Date -Format yyyy-MM-dd_hh-mm) `t Iterating all UPS profiles..." -ForegroundColor Yellow
+            foreach($userProfile in $profiles)
+            {
+                $index += 1
+                Try{
+                    #write-host $userProfile["AccountName"]
+                    $EmpID = ($userProfile["AccountName"] -split $separator,2)[1]
+                    Write-Host "$(Get-Date -Format yyyy-MM-dd_hh-mm) `t $index | Processing AccountID: $EmpID"
+                    
+                    #Ignore Service Accounts
+                    if( -Not($EmpID.StartsWith("sa_")) -and -Not($EmpID.StartsWith("TEST_")) )
+                    {
+                        $dbRow = GetDBRecord $EmpID
+                        
+                        if($null -eq $dbRow){
+                            $status = ""
+                            $global:countUsersNotInDB += 1
+                            $global:arrUsersNotInDB += $userProfile
+                        }
+                        else{
+                            $status = [String]$dbRow["STATUS"]
+                        }
+
+                        $isDeleted = Remove-SPUserProfile $userProfile $status
+
+                        if( (-not $isDeleted) -and ($dbRow -ne $null))
+                        {
+                            $userProfile["UPS-Address"].Value =  $dbRow["ADDRESS"]
+                            $userProfile["UPS-City"].Value =  $dbRow["CITY"]
+                            $userProfile["UPS-State"].Value =  $dbRow["STATE"]
+                            $userProfile["UPS-ZipCode"].Value =  $dbRow["ZIPCODE"]
+                            $userProfile.Commit()
+                            $successItems += 1
+                            #Write-Host "$index :SUCCESS:Record Updated:User:" $userProfile["AccountName"]
+                        }
+                    }
+                }
+                catch{
+                    Write-Host "$(Get-Date -Format yyyy-MM-dd_hh-mm) `t Error: Item Failed to Update: $_" -fore red 
+                    Write-EventLog -LogName $logName -Source $eventSource -EventID 0 -EntryType Error -Message "$eventSource Error - EMPID: $EmpID failed to update address, Error Message: $_"
+                    $failedItems += 1
+                }
+                
+            }
+        }
+
+        if($failedItems -gt 0){
+            Write-EventLog -LogName $logName -Source $eventSource -EventID 0 -EntryType Error -Message "$eventSource Error - $failedItems items failed to update address in SharePoint User Profile Service Application"
+        }
+        Write-EventLog -LogName $logName -Source $eventSource -EventID 1 -EntryType SuccessAudit -Message "$eventSource Error - Updated address for $successItems items in SharePoint User Profile Service Application successfully."
+    }
+}
+
+Write-Host "Users In-AD NotIn-Audience: " $global:countUsersinADNotInAudience ", Users Inactive In-DB: " $global:countUsersInactiveInDB ", Users NotIn-DB: " $global:countUsersNotInDB
+
+$global:arrUsersNotInAudience | Format-List "DisplayName", "AccountName", "SipAddress" > $logUsersNotInAudience
+$global:arrUsersNotInDB | Format-List "DisplayName", "AccountName", "SipAddress" > $logUsersNotInDB
+$global:arrUsersInactiveInDB | Format-List "DisplayName", "AccountName", "SipAddress" > $logUsersInactiveInDB
+
+    ## START FUll UPS Sync
+    if($upsConfigManager.IsSynchronizationRunning() -eq $false)
+    {
+        $upsConfigManager.StartSynchronization($true) 
+        Write-Host "$(Get-Date -Format yyyy-MM-dd_hh-mm) `t Started Full UPS Sync"
+
+        Start-Sleep -s 600   #Give 10 minutes (600 seconds for it to complete)
+    }
+    else
+    {
+        Write-Host "$(Get-Date -Format yyyy-MM-dd_hh-mm) `t UPS Sync is runniung already"
+    }
+
+    # Start Target Audience Compilation
+    $appUPA = Get-SPServiceApplication | Where {$_.TypeName -eq 'User Profile Service Application'}
+    if ($appUPA) {
+        #Stop Audiences Compilation Job
+        Audiencejob.exe $appUPA.Id 0
+        #Start Audiences Compilation Job
+        Audiencejob.exe $appUPA.Id 1 spsocial  #this compiles all available audiences though
+    }
+
+DeleteOldLogs
+
+stop-transcript

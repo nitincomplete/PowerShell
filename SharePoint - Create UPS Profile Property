@@ -1,0 +1,62 @@
+Param([Parameter(Mandatory=$true)][string]$Site, [Parameter(Mandatory=$true)][string]$PropertyName, [Parameter(Mandatory=$true)][string]$PropertyDisplayName)
+
+[void][System.Reflection.Assembly]::LoadWithPartialName("Microsoft.Office.Server")  
+[void][System.Reflection.Assembly]::LoadWithPartialName("Microsoft.Office.Server.UserProfiles")  
+#[void][System.Reflection.Assembly]::LoadWithPartialName("Microsoft.SharePoint")
+Add-PSSnapin Microsoft.SharePoint.PowerShell
+
+#uncomment for local run for testing
+#$site = "<Central Admin URL>"
+
+$LogTime = Get-Date -Format yyyy-MM-dd_hh-mm
+$LogFile = ".\UserProperty_$PropertyName-$LogTime.log"
+start-transcript $Logfile
+
+$context = Get-SPServiceContext $Site
+$userProfileConfigManager = New-Object Microsoft.Office.Server.UserProfiles.UserProfileConfigManager($context)
+$profilePropertyManager = $userProfileConfigManager.ProfilePropertyManager
+$corePropertyManager = $profilePropertyManager.GetCoreProperties()
+$profileTypePropertyManager = $profilePropertyManager.GetProfileTypeProperties([Microsoft.Office.Server.UserProfiles.ProfileType]::User)
+$profileSubTypeManager = [Microsoft.Office.Server.UserProfiles.ProfileSubTypeManager]::Get($context)
+$defaultSubType = [Microsoft.Office.Server.UserProfiles.ProfileSubtypeManager]::GetDefaultProfileName([Microsoft.Office.Server.UserProfiles.ProfileType]::User)
+$profileSubType = $profileSubTypeManager.GetProfileSubtype($defaultSubType)
+$profileSubTypePropertyManager = $profileSubType.Properties
+
+#Create Core Property
+#$PropertyName = $UserProperty
+#$PropertyDisplayName = $UserProperty
+$Privacy=”Public”
+$PrivacyPolicy=”OptIn”
+$coreProperty = $corePropertyManager.Create($false)
+$coreProperty.Name = $PropertyName
+$coreProperty.DisplayName = $PropertyDisplayName
+$coreProperty.Type = “string”
+$coreProperty.Length = “255”
+$coreProperty.IsMultivalued = $false
+$foundProperty = $corePropertyManager.GetPropertyByName($PropertyName)
+
+#if the property is found then we delete that property.
+if ($foundProperty -ne $null)
+{
+    #Uncomment the code to delete the property.
+    $corePropertyManager.RemovePropertyByName($PropertyName)
+    Write-Host "$PropertyName :Removed Existed One. Re-creating..."
+}
+
+$corePropertyManager.Add($coreProperty)
+Write-Host "$PropertyName :Created"
+
+#Create Profile Property
+$profileTypeProperty = $profileTypePropertyManager.Create($coreProperty)
+$profileTypeProperty.IsVisibleOnEditor = $false
+$profileTypeProperty.IsVisibleOnViewer = $true
+$profileTypeProperty.IsEventLog = $false
+$profileTypePropertyManager.Add($profileTypeProperty)
+
+#Create Profile Sub Property
+$profileSubTypeProperty = $profileSubTypePropertyManager.Create($profileTypeProperty)
+$profileSubTypeProperty.DefaultPrivacy =[Microsoft.Office.Server.UserProfiles.Privacy]::$Privacy
+$profileSubTypeProperty.PrivacyPolicy =[Microsoft.Office.Server.UserProfiles.PrivacyPolicy]::$PrivacyPolicy
+$profileSubTypePropertyManager.Add($profileSubTypeProperty)
+
+stop-transcript

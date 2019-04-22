@@ -1,0 +1,48 @@
+Add-PSSnapin Microsoft.SharePoint.Powershell
+
+$outputFilename = "D:\PS-Export\SP2016_SPServiceApps-Permissions.txt"
+$list = @()
+try{
+
+    Get-SPServiceApplication | ForEach-Object { 
+        $spApp = $_
+        $item = @{}
+
+        $appPool = $spApp.ApplicationPool
+
+        $item.SvcAppName = $spApp.DisplayName
+        $item.SvcAppType = $spApp.TypeName
+
+        $admins = "";
+        (Get-SPServiceApplicationSecurity $spApp -Admin).AccessRules | ForEach-Object { 
+            $admins += "User: " + $_.Name + ", " + $_.Description + ", " + $_.AllowedRights + "***"
+        }
+        $item.SvcAppAdmins = $admins
+
+        $permissions = "";
+        if( ($spApp.TypeName -ne "State Service") -and ($spApp.TypeName -ne "Usage and Health Data Collection Service Application") ){
+            
+            (Get-SPServiceApplicationSecurity -Identity $spApp.Id).AccessRules | ForEach-Object { 
+                $permissions += "User: " + $_.Name + ", " + $_.Description + ", " + $_.AllowedRights + "***"
+            }
+        }
+        $item.SvcAppAccess = $permissions
+
+        $item.SvcAppPoolName = $appPool.Name
+        $item.SvcAppPoolStatus = $appPool.Status
+        $item.SvcAppPoolFarm = $appPool.Farm.Name
+        $item.SvcAppPoolParent = $appPool.Parent.Name
+        $item.SvcAppPoolAccount = $appPool.ProcessAccountName
+
+        $obj = New-Object PSObject -Property $item
+        $list += $obj
+    }
+
+    $list | Format-List -Property "SvcAppName", "SvcAppType", "SvcAppPoolName", "SvcAppPoolStatus", "SvcAppPoolAccount", "SvcAppPoolParent", "SvcAppAdmins", "SvcAppAccess" > $outputFilename
+    #$list | Export-Csv $outputFilename -NoTypeInformation
+
+}catch
+{
+    $ExceptionMessage = "Error in Line: " + $_.Exception.Line + ". " + $_.Exception.GetType().FullName + ": " + $_.Exception.Message + " Stacktrace: " + $_.Exception.StackTrace
+    $ExceptionMessage
+}

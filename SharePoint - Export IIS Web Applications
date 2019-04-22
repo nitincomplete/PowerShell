@@ -1,0 +1,34 @@
+try{
+Import-Module WebAdministration
+
+$outputfile = "D:\PS-Export\SP2016_IIS-WebApps.txt"
+$list = @()
+foreach ($webapp in get-childitem IIS:\Sites\)
+{
+    $appPool = $webapp.applicationPool
+    $appPoolName = "IIS:\AppPools\" + $appPool
+
+    $item = @{}
+    
+    $item.WebAppName = $webapp.name
+    $item.URL = (Get-WebURL $appPoolName).ResponseUri.OriginalString
+    $item.Bindings = (Get-WebBinding -Name $webapp.name).bindingInformation
+    $item.WebAppState = $webapp.state
+    $item.AppPoolName = $appPool
+    $item.AppPoolState = (Get-WebAppPoolState -Name $appPool).Value
+    $item.ServiceAccount = $appPool.ProcessAccountName #(Get-ItemProperty $appPoolName -name processModel).userName
+    $item.IdentityType = (Get-ItemProperty $appPoolName -name processModel).identityType
+    $item.AppPoolVersion = (Get-ItemProperty $appPoolName -name managedRuntimeVersion).Value
+        
+    $obj = New-Object PSObject -Property $item
+    $list += $obj
+}
+
+    $list
+    $list | Format-Table -a -Property "WebAppName", "Bindings", "WebAppState", "AppPoolName", "AppPoolState", "ServiceAccount", "IdentityType", "AppPoolVersion" > $outputfile
+
+}catch
+{
+    $ExceptionMessage = "Error in Line: " + $_.Exception.Line + ". " + $_.Exception.GetType().FullName + ": " + $_.Exception.Message + " Stacktrace: " + $_.Exception.StackTrace
+    $ExceptionMessage
+}

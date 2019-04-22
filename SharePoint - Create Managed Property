@@ -1,0 +1,36 @@
+Param([Parameter(Mandatory=$true)][string]$SSAName, [Parameter(Mandatory=$true)][string]$ManagedProperty,  [Parameter(Mandatory=$true)][string]$Type, [Parameter(Mandatory=$true)][string]$Description, [Parameter(Mandatory=$true)][string]$CrawledProperty)
+
+#Ensure SharePoint PowerShell snapin is loaded
+if((Get-PSSnapin -Name Microsoft.SharePoint.PowerShell -ErrorAction SilentlyContinue) -eq $null){
+    Add-PSSnapin Microsoft.SharePoint.PowerShell
+}
+
+$LogTime = Get-Date -Format yyyy-MM-dd_hh-mm
+$LogFile = ".\ManagedProperty-$ManagedProperty-$LogTime.log"
+start-transcript $logfile
+
+#$SSAName = "Search Service"
+#$ManagedProperty = "test"
+#$Description = "Address of SharePoint User in User Profile Service Application"
+#$CrawledProperty = "People:UPS-Address"
+
+#Get Search Service Application
+$ssa = Get-SPEnterpriseSearchServiceApplication -Identity $SSAName
+
+#remove it if it already exists
+if ($mp = Get-SPEnterpriseSearchMetadataManagedProperty -SearchApplication $ssa -Identity $ManagedProperty -ErrorAction SilentlyContinue)
+{
+    #$mp | Remove-SPEnterpriseSearchMetadataManagedProperty -Confirm
+    $mp.DeleteAllMappings()
+    $mp.Delete()
+    $ssa.Update()
+}
+
+#Create New Managed Property
+$mp = New-SPEnterpriseSearchMetadataManagedProperty -SearchApplication $ssa -Name $ManagedProperty -Type $Type -Description $Description -Queryable $true -Retrievable $true -SafeForAnonymous $true
+
+#Map Crawled Property to managed property
+$cp = Get-SPEnterpriseSearchMetadataCrawledProperty -SearchApplication $ssa -Name $CrawledProperty
+New-SPEnterpriseSearchMetadataMapping -SearchApplication $ssa -CrawledProperty $cp -ManagedProperty $mp
+
+stop-transcript

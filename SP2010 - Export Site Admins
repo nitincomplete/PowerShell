@@ -1,0 +1,83 @@
+#********Script to Get the Site Admins List across the SharePoint farm**********#
+
+if ((Get-PSSnapin "Microsoft.SharePoint.PowerShell" -ErrorAction SilentlyContinue) -eq $null) 
+{
+    Add-PSSnapin "Microsoft.SharePoint.PowerShell"
+}
+
+#PROD
+$webapplications = @('WebApp1','WebApp2')
+
+$Location = "D:\PS-Export\SP2010_SiteAdmins_PROD.csv"
+$results = @() 
+
+# Get Start Time
+$startDTM = (Get-Date)
+write-host "Start Time: " $startDTM
+
+foreach($webapplication in $webapplications) #Looping Webapplications
+{
+    $webapp = Get-SPWebApplication $webapplication
+    if( ($null -ne $webapp)  -and ($null -ne $webapp.Sites) )
+    {
+        foreach($site in $webApp.Sites)  
+        {
+            if( ($null -ne $site) -and ($null -ne $site.RootWeb) -and ($null -ne $site.RootWeb.SiteAdministrators) )  
+            {
+                foreach($siteAdmin in $site.RootWeb.SiteAdministrators)  
+                {  
+                    if($null -ne $siteAdmin)
+                    {
+                        $details = @{
+                            SiteName = $($siteAdmin.ParentWeb.Title)
+                            SiteURL = $($siteAdmin.ParentWeb.Url)
+                            UserName = $($siteAdmin.DisplayName)
+                            UserLogin = $($siteAdmin.UserLogin).Replace("i:0#.w|","")
+                            Message = ""
+                            }
+                            $results += New-Object PSObject -Property $details 
+                    }
+                    else {
+                        $details = @{
+                            SiteName = $($site.RootWeb.Title)
+                            SiteURL = $($site.RootWeb.Url)
+                            UserName = "NotAvailable"
+                            UserLogin = "NotAvailable"
+                            Message = ""
+                            }
+                            $results += New-Object PSObject -Property $details
+                    }
+                }  
+                $site.Dispose()
+            }
+            else{
+                $details = @{
+                    SiteName = ""
+                    SiteURL = $($site.Url)
+                    UserName = "NotAvailable"
+                    UserLogin = "NotAvailable"
+                    Message = "Either RootWeb is null Or No Admins available"
+                    }
+                    $results += New-Object PSObject -Property $details
+            }
+        }
+    }
+    else {
+        $details = @{
+            SiteName = $webapplication
+            SiteURL = "NotAvailable"
+            UserName = "NotAvailable"
+            UserLogin = "NotAvailable"
+            Message = "No WebApp Or SiteCollections Avilable"
+            }
+            $results += New-Object PSObject -Property $details
+    }
+}
+$results | export-csv -Path $Location -NoTypeInformation
+
+# Get End Time
+$endDTM = (Get-Date)
+write-host "End Time: " $endDTM
+# Echo Time elapsed
+write-host "Elapsed Time: $(($endDTM-$startDTM).totalseconds) seconds"
+write-host "--------------------------------------------"

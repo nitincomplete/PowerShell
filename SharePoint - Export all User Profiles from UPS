@@ -1,0 +1,55 @@
+# -----------------------------------------------------------------------------
+# Script	: To Export User Profile Information Value in Excel
+# -----------------------------------------------------------------------------
+
+Add-PSSnapin Microsoft.SharePoint.PowerShell -ErrorAction SilentlyContinue
+
+$siteUrl = "<Central Admin URL>"
+$outputFile = "D:\SP2016\SP2016_UPS_AllUserProfiles.csv"
+
+$serviceContext = Get-SPServiceContext -Site $siteUrl
+$profileManager = New-Object Microsoft.Office.Server.UserProfiles.UserProfileManager($serviceContext);
+$profiles = $profileManager.GetEnumerator()
+
+$collection = @()
+foreach ($profile in $profiles) {
+ 
+   $profileData = "" | 
+   select "AccountName", "PreferredName" , "Department" , "LDAP" , "Office" , "Location" , "WorkEmail" , "HireDate", "Manager"
+   
+   $profileData.AccountName = $profile["AccountName"]
+   $profileData.PreferredName = $profile["PreferredName"]
+   $profileData.WorkEmail = $profile["WorkEmail"]
+   $profileData.Office = $profile["Office"]
+   $profileData.Department = $profile["Department"]
+   $profileData.HireDate = $profile["SPS-HireDate"]
+   $profileData.Location = $profile["Location"]
+   $profileData.LDAP = $profile["SPS-DistinguishedName"]
+   
+   
+   #$profileData.AboutMe = $profile["AboutMe"].Value
+   #$profileData.PictureURL = $profile["PictureURL"]
+   #$profileData.Role = $profile["Role"]
+
+   #Get Manager Method -1
+   #if($null -ne $profile["Manager"])
+   #{
+   # $userProfileManager = $profileManager.GetUserProfile($profile["Manager"].Value);
+   # $profileData.Manager = $userProfileManager["Name"].Value
+   #}
+
+   #Get Manager Method -2
+   #if ($profile.manager) # if not null
+   #{
+   # $managerDetails = Get-ADUser (Get-ADUser $profile -properties manager).manager -properties displayname
+   # $profileData.Manager = $managerDetails.displayName
+   #}
+   #else{
+   # write-host $profile["AccountName"] " - No Manager"
+   #}
+   #$collection += $profileData | ConvertTo-Html -Fragment
+
+   $collection += $profileData
+}
+
+$collection | Export-Csv $outputFile -NoTypeInformation

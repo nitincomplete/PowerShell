@@ -1,0 +1,90 @@
+#Below script generates acceess permissions details for all users for WebApps/Sites/Subsites.
+
+Add-PSSnapin Microsoft.SharePoint.PowerShell -ErrorAction SilentlyContinue
+
+Function GetUserAccessReport($WebAppURL, $FileUrl)
+{
+	try{
+		Write-Host "Exporting permissions for WebApp: " $WebAppURL  -ForegroundColor Yellow
+		$WebApp= Get-SPWebApplication $WebAppURL
+		
+		#Get All Site Collections of the WebApp
+		$SiteCollections = Get-SPSite -WebApplication $WebAppURL -Limit All
+
+		#Write CSV- TAB Separated File) Header
+		"SiteURL `t SiteColl/Subsite `t SiteName `t PermissionType `t Permissions  `t UserName `t LoginName" | out-file $FileUrl
+
+		#Get Web Application User Policies
+		foreach ($Policy in $WebApp.Policies) 
+		{
+			$PolicyRoles=@()
+			foreach($Role in $Policy.PolicyRoleBindings)
+			{
+				$PolicyRoles+= $Role.Name +";"
+			}		
+			"$($AdminWebApp.URL) `t Web Application `t $($AdminSite.Title)`t  Web Application Policy `t $($PolicyRoles) `t $($Policy.DisplayName) `t $($Policy.UserName.Replace(`"i:0#.w|`",`"`"))" | Out-File $FileUrl -Append
+		}
+	
+		#Loop through all site collections and subsites
+		foreach($Site in $SiteCollections) 
+		{
+			#Get all Site Collection Administrators
+			foreach($SiteCollAdmin in $Site.RootWeb.SiteAdministrators)
+			{
+				"$($Site.RootWeb.Url) `t SiteColl `t $($Site.RootWeb.Title)`t Site Collection Administrator `t Site Collection Administrator `t $($SiteCollAdmin.DisplayName) `t $($SiteCollAdmin.LoginName.Replace(`"i:0#.w|`",`"`"))" | Out-File $FileUrl -Append
+			}
+	
+		#Loop throuh all Sub Sites
+		foreach($Web in $Site.AllWebs) 
+		{	
+				if($Web.HasUniqueRoleAssignments -eq $True)
+				{
+					#Get all the users granted permissions to the list
+					foreach($WebRoleAssignment in $Web.RoleAssignments ) 
+					{ 
+						#Is it a User Account?
+						if($WebRoleAssignment.Member.userlogin)    
+							{
+										#Get the Permissions assigned to user
+										$WebUserPermissions=@()
+										foreach ($RoleDefinition  in $WebRoleAssignment.RoleDefinitionBindings)
+										{
+											$WebUserPermissions += $RoleDefinition.Name +";"
+										}
+										#write-host "with these permissions: " $WebUserPermissions
+										#Send the Data to Log file
+										"$($Web.Url) `t Subsite `t $($Web.Title)`t Direct Permission `t $($WebUserPermissions)  `t $($WebRoleAssignment.Member.DisplayName) `t $($WebRoleAssignment.Member.LoginName.Replace(`"i:0#.w|`",`"`"))" | Out-File $FileUrl -Append
+							}
+						#Its a SharePoint Group, So search inside the group and check if the user is member of that group
+						else  
+						{
+							foreach($user in $WebRoleAssignment.member.users)
+							{
+									#Get the Group's Permissions on site
+									$WebGroupPermissions=@()
+									foreach ($RoleDefinition  in $WebRoleAssignment.RoleDefinitionBindings)
+									{
+										$WebGroupPermissions += $RoleDefinition.Name +";"
+									}
+									#write-host "Group has these permissions: " $WebGroupPermissions
+									#Send the Data to Log file
+									"$($Web.Url) `t Subsite `t $($Web.Title)`t Member of $($WebRoleAssignment.Member.Name) Group `t $($WebGroupPermissions) `t $($user.DisplayName) `t $($user.LoginName.Replace(`"i:0#.w|`",`"`"))" | Out-File $FileUrl -Append
+							}
+						}
+					}
+				}
+					
+			} #end foreach webs/subsites	
+		} #end foreach site collections
+	}catch
+	{
+		$ExceptionMessage = "Error in Line: " + $_.Exception.Line + ". " + $_.Exception.GetType().FullName + ": " + $_.Exception.Message + " Stacktrace: " + $_.Exception.StackTrace
+		$ExceptionMessage
+	}
+    Write-Host "Completed and Exported at " $FileUrl -ForegroundColor Green
+} #end function
+
+#Call the functions
+GetUserAccessReport "WebApp1 URL" "D:\PS-Export\SP2016_AllPermisions_WebApp1.csv"
+
+

@@ -1,0 +1,37 @@
+#Below script exports IIS seetings of SharePoint Web Applications
+
+Add-PSSnapin Microsoft.SharePoint.PowerShell -ErrorAction SilentlyContinue
+
+$outputfile = "D:\PS-Export\SP2010_SPWebApplications.txt"
+$list = @()
+
+try{
+
+    Get-SPWebApplication  -includecentraladministration | ForEach-Object {
+
+        $item = @{} 
+
+        $item.WebAppName = $_.DisplayName
+        $item.URL = $_.Url
+        $item.Port = $_.IisSettings["Default"].ServerBindings.Port
+        $item.WebAppStatus = $_.Status
+        $item.AppPoolName = $_.ApplicationPool.DisplayName
+        $item.AppPoolSvcAccount = $_.ApplicationPool.Username
+        $item.AppPoolStatus = $_.ApplicationPool.Status
+        $item.AppPoolIdentityType = $_.ApplicationPool.CurrentIdentityType
+        $item.AppPoolVersion = $_.ApplicationPool.Version
+    
+        $obj = New-Object PSObject -Property $item
+        $list += $obj
+
+    }
+
+    $list
+    $list > $outputfile
+    Write-Host "Completed and Exported at location:" $outputfile -ForegroundColor Green
+
+}catch
+{
+    $ExceptionMessage = "Error in Line: " + $_.Exception.Line + ". " + $_.Exception.GetType().FullName + ": " + $_.Exception.Message + " Stacktrace: " + $_.Exception.StackTrace
+    $ExceptionMessage
+}

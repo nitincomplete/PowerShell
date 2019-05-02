@@ -1,0 +1,90 @@
+#********Script to Modify field 'Data Classification' from Site Coll Content Type, System Update **********#
+
+if ((Get-PSSnapin "Microsoft.SharePoint.PowerShell" -ErrorAction SilentlyContinue) -eq $null) 
+{
+    Add-PSSnapin "Microsoft.SharePoint.PowerShell"
+}
+
+#TEST
+$webapplications = @('<Web App URL>')
+$siteCollURL = "<Site Coll URL>"
+$fieldDataClassification = "Data Classification"
+
+# Get Start Time
+$startDTM = (Get-Date)
+write-host "Start Time: " $startDTM
+
+#foreach($webapplication in $webapplications) #Looping Webapplications
+#{
+    #Write-Host "webapplication: " $webapplication
+    #$webapp = Get-SPWebApplication $webapplication
+    #if($null -ne $webapp)
+    #{
+        #Write-Host "WebApp is Not Null"
+        #Write-Host "Web Application : " $webApp.Name -ForegroundColor Green
+        #foreach($site in $spWebApp.Sites)  
+        #{
+            $site = Get-SPSite $siteCollURL
+            if($null -ne $site)
+            {
+                #Write-Host $site.Title
+                foreach($web in $site.AllWebs)
+                {
+                    if($null -ne $web)
+                    {
+                        Write-Host "Subsite:" $web.Title -ForegroundColor Yellow
+                        $Libraries = $web.Lists | where {($_.BaseType -eq "DocumentLibrary") -and ($_.Hidden -eq $false)}
+                        foreach($list in $Libraries)
+                        {
+                            if( ($list.Title -ne "Site Assets") -and ($list.Title -ne "Site Pages") -and ($list.Title -ne "Style Library") -and ($list.Title -ne "Form Templates") )
+                            {
+                                Write-Host "Processing List Name:" $list.Title
+                                if( $list.Fields.ContainsField($fieldDataClassification) -eq $true)
+                                {
+                                    Write-Host "List Name:" $list.Title "Has $fieldDataClassification"
+                                    $items = $list.items
+                                    if($null -ne $items)
+                                    {
+                                        #Go through all items
+                                        foreach($item in $items)
+                                        {
+                                            #If the "Title" column value equals "My first item!" do something with it
+                                            if($item[$fieldDataClassification] -eq "Public / Internal Use")
+                                            {
+                                                $item[$fieldDataClassification] = "Internal"
+                                            }
+                                            elseif($item[$fieldDataClassification] -eq "Confidential / Highly Restricted")
+                                            {
+                                                $item[$fieldDataClassification] = "Sensitive"
+                                            }
+                                            else{}
+                                            #Update the item
+                                            $item.SystemUpdate()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        $web.Dispose()
+                    }
+                    else {
+                        Write-Host "Subsite is Null" -ForegroundColor Red
+                    }
+                }
+                $site.Dispose()
+            }
+            else {
+                Write-Host "Site Collection is Null" -ForegroundColor Red
+            }
+        #}
+    #}
+    #else {
+    #    Write-Host "WebApp is null" -ForegroundColor Red
+    #}
+#}
+
+# Get End Time
+$endDTM = (Get-Date)
+write-host "End Time: " $endDTM
+# Echo Time elapsed
+"Elapsed Time: $(($endDTM-$startDTM).totalseconds) seconds"

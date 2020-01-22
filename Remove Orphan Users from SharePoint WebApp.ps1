@@ -20,7 +20,7 @@ $startDTM = (Get-Date)
 $webApp = Get-SPWebApplication $webAppURL
  
 # Grant the user running this script full permissions
-#$userRunningScript = "FTBCO\27352"
+#$userRunningScript = "Username"
 #$webApp.GrantAccessToProcessIdentity($userRunningScript)
  
 # CSV File to hold the list of orphaned users
@@ -63,9 +63,9 @@ Foreach ($site in $webApp.Sites)
                         # Write an LDAP path/query for each SharePoint domain (or NetBIOS name) that you are working with
                         # Put all keys in lowercase
                         $spToADMapping = @{
-                            'ftn' = 'LDAP://OU=1FTN Financial,OU=Domain Users,DC=ftbco,DC=FTN,DC=com'
-                            'ftbco' = 'LDAP://OU=Domain Users,DC=ftbco,DC=FTN,DC=com'
-                            'first_tennessee' = 'LDAP://CN=ForeignSecurityPrincipals,DC=ftbco,DC=FTN,DC=com'
+                            'Domain1' = 'LDAP://OU=Domain Users,DC=Domain1,DC=com'
+                            'Domain2' = 'LDAP://OU=Domain Users,DC=Domain2,DC=com'
+                            'Domain3' = 'LDAP://DC=Domain3,DC=com'
                         }
  
                         # Check if login name is claims encoded

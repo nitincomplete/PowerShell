@@ -1,3 +1,3 @@
 $farm = Get-SPFarm
-$file = $farm.Solutions.Item("FHN.MarginNet.Web.wsp").SolutionFile
-$file.SaveAs("C:\SP2010\WSPs\FHN.MarginNet.Web.wsp")
+$file = $farm.Solutions.Item("<WSP_Name>.wsp").SolutionFile
+$file.SaveAs("C:\SP2010\WSPs\<WSP_Name>.wsp")

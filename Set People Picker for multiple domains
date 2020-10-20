@@ -1,0 +1,10 @@
+Run this - 
+stsadm -o setproperty -pn peoplepicker-searchadforests -pv "forest:mainforest.com;domain:domain1.com;domain:domain2.int" -url <WebAppURL>
+
+and this
+$webapp = Get-SPWebApplication "<WebAppUrl>"
+$ws = $webapp.WebService
+$ws.PeoplePickerSearchInMultipleForests = $True
+$ws.update()
+
+Troubleshooting, make sure the other domains are in one-way/two-way trust and there are no Firewall restrictions for SP servers.

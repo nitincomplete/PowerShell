@@ -87,7 +87,7 @@ foreach($WebApplication in $WebApplications)
                     if($Web -ne $null)
                     {
                         $webSize = GetFolderSize $Web.RootFolder #Call function to calculate Folder Size
-                        $formatedSize = [Math]::Round($webSize/1MB, 2)
+                        $formatedSize = [Math]::Round($webSize/1MB, 2) 
                         #Fetches information for each  site
                         Write-Output "$($Web.Title) `t $($Web.Url) `t $($Site.Owner.Name) `t $($Site.Owner.Email) `t $ownerDept `t $($Site.SecondaryContact.Name) `t $($Site.SecondaryContact.Email) `t $secOwnerDept `t $($Web.Created) `t $($Web.LastItemModifiedDate) `t $($formatedSize)" | Out-File $FileLocation -Append
                     }
